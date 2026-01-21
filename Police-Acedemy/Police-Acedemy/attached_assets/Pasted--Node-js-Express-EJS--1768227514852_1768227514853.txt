@@ -1,0 +1,126 @@
+// ===============================
+// مشروع أكاديمية الشرطة - كامل
+// Node.js + Express + EJS
+// اللغة العربية افتراضية
+// ===============================
+
+const express = require('express');
+const session = require('express-session');
+const fs = require('fs');
+const path = require('path');
+const csv = require('csv-parser');
+
+const app = express();
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
+app.set('view engine', 'ejs');
+
+// ===============================
+// الملفات الأساسية
+// ===============================
+const usersPath = path.join(__dirname, 'users.json');
+const announcementsPath = path.join(__dirname, 'announcements.json');
+const ranksPath = path.join(__dirname, 'ranks.csv');
+const rulesPath = path.join(__dirname, 'rules.json');
+
+let users = fs.existsSync(usersPath) ? JSON.parse(fs.readFileSync(usersPath)) : [];
+let announcements = fs.existsSync(announcementsPath) ? JSON.parse(fs.readFileSync(announcementsPath)) : [];
+let rules = fs.existsSync(rulesPath) ? JSON.parse(fs.readFileSync(rulesPath)) : {};
+let applicationsOpen = true;
+let ranks = [];
+
+// قراءة جدول الرتب من CSV
+if (fs.existsSync(ranksPath)) {
+  fs.createReadStream(ranksPath)
+    .pipe(csv())
+    .on('data', row => ranks.push(row))
+    .on('end', () => console.log('تم تحميل جدول الرتب'));
+}
+
+// البروتوكولات للتقديم
+const protocols = ["0-1","0-2","0-3","0-4","0-5","0-6","0-7","0-8","10-1","10-3","10-7","10-6"];
+
+// ===============================
+// Middleware
+// ===============================
+function auth(req, res, next) {
+  if (!req.session.user) return res.redirect('/login');
+  next();
+}
+
+function adminOnly(req, res, next) {
+  if (!req.session.user || req.session.user.role !== 'admin') return res.redirect('/');
+  next();
+}
+
+// ===============================
+// Routes تسجيل الدخول والتسجيل
+// ===============================
+app.get('/login', (req,res) => res.render('login', { lang: 'ar' }));
+app.get('/register', (req,res) => res.render('register', { lang: 'ar' }));
+
+app.post('/login', (req,res) => {
+    const user = users.find(u => u.username === req.body.username && u.password === req.body.password);
+    if (!user) return res.redirect('/login');
+    req.session.user = user;
+    res.redirect('/');
+});
+
+app.post('/register', (req,res) => {
+    users.push({ username: req.body.username, password: req.body.password, role: 'user' });
+    fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
+    res.redirect('/login');
+});
+
+// ===============================
+// صفحات الموقع
+// ===============================
+app.get('/', auth, (req,res) => res.render('home', { user: req.session.user, lang: 'ar' }));
+app.get('/ranks', auth, (req,res) => res.render('ranks', { ranks, lang: 'ar' }));
+app.get('/rules', auth, (req,res) => res.render('rules', { rules, lang: 'ar' }));
+app.get('/apply', auth, (req,res) => res.render('apply', { protocols, open: applicationsOpen, lang: 'ar' }));
+
+app.post('/apply', auth, (req,res) => {
+    let applications = fs.existsSync('applications.json') ? JSON.parse(fs.readFileSync('applications.json')) : [];
+    applications.push({ username: req.session.user.username, protocols: req.body.protocols || [] });
+    fs.writeFileSync('applications.json', JSON.stringify(applications,null,2));
+    res.send('تم تقديم الطلب بنجاح');
+});
+
+app.get('/announcements', auth, (req,res) => res.render('announcements', { announcements, open: applicationsOpen, user: req.session.user, lang: 'ar' }));
+
+// ===============================
+// لوحة تحكم الأدمن
+// ===============================
+app.get('/admin', auth, adminOnly, (req,res) => res.render('admin', { open: applicationsOpen, announcements, lang: 'ar' }));
+
+app.post('/admin/toggle', adminOnly, (req,res) => {
+    applicationsOpen = !applicationsOpen;
+    res.redirect('/admin');
+});
+
+app.post('/admin/announce', adminOnly, (req,res) => {
+    announcements.push(req.body.text);
+    fs.writeFileSync(announcementsPath, JSON.stringify(announcements, null, 2));
+    res.redirect('/admin');
+});
+
+// ===============================
+// تشغيل السيرفر (Replit friendly)
+// ===============================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running على http://localhost:${PORT}`));
+
+/*
+=========================
+💡 كيفية إضافة حسابات أدمن:
+- افتح users.json
+- أضف حساب جديد بهذا الشكل:
+{
+  "username": "اسم المستخدم",
+  "password": "كلمة المرور",
+  "role": "admin"
+}
+- احفظ الملف، وسجل الدخول بالحساب → يظهر لك لوحة التحكم تلقائيًا
+=========================
+*/
